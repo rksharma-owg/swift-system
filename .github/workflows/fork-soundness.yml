@@ -1,3 +1,6 @@
+# Fork-only adaptation of swiftlang/github-workflows 0.0.15, soundness.yml.
+# Apache-2.0: https://github.com/swiftlang/github-workflows/blob/0.0.15/LICENSE.txt
+# Modified to verify contribution SHAs and use hosted runners for equivalent checks.
 name: Soundness
 permissions:
   contents: read
