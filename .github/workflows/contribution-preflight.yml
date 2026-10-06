@@ -35,7 +35,6 @@ jobs:
       enable_android_sdk_build: true
       enable_android_sdk_checks: true
       enable_freebsd_checks: true
-    steps: []
   build-abi-stable:
     name: Build ABI Stable
     uses: rksharma-owg/swift-system/.github/workflows/fork-package.yml@main
@@ -46,7 +45,6 @@ jobs:
       macos_build_command: xcrun swift build --build-tests
       macos_exclude_xcode_versions: '[]'
       swift_flags: -Xbuild-tools-swiftc -DSYSTEM_CI -Xbuild-tools-swiftc -DSYSTEM_ABI_STABLE
-    steps: []
   cmake_build:
     name: CMake Validation
     runs-on: ubuntu-latest
@@ -109,7 +107,6 @@ jobs:
       format_check_enabled: false
       python_lint_check_enabled: false
       api_breakage_check_baseline: ${{ inputs.base_sha }}
-    steps: []
 'on':
   workflow_dispatch:
     inputs:
