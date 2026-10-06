@@ -1,0 +1,593 @@
+name: Soundness
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.run_id }}-fork-soundness.yml
+  cancel-in-progress: false
+jobs:
+  api-breakage-check:
+    name: API breakage check
+    if: ${{ inputs.api_breakage_check_enabled }}
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.api_breakage_check_container_image }}
+    timeout-minutes: 40
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+        submodules: true
+        fetch-tags: true
+        fetch-depth: 0
+        ref: ${{ github.event.inputs.patch_sha }}
+    - name: Verify exact patch and baseline
+      shell: bash
+      env:
+        PATCH_SHA: ${{ github.event.inputs.patch_sha }}
+        BASE_SHA: ${{ github.event.inputs.base_sha }}
+      run: 'set -euo pipefail
+
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+        test "$(git rev-parse HEAD)" = "$PATCH_SHA"
+
+        git merge-base --is-ancestor "$BASE_SHA" HEAD
+
+        git log -1 --format=fuller
+
+        printf ''Baseline: %s\n'' "$BASE_SHA"'
+    - name: Mark the workspace as safe
+      run: git config --global --add safe.directory ${GITHUB_WORKSPACE}
+    - name: Run API breakage check
+      shell: bash
+      env:
+        API_BREAKAGE_CHECK_BASELINE: ${{ inputs.api_breakage_check_baseline }}
+        API_BREAKAGE_CHECK_ALLOWLIST_PATH: ${{ inputs.api_breakage_check_allowlist_path }}
+      run: "${{ inputs.linux_pre_build_command }}\nif [[ -z \"${API_BREAKAGE_CHECK_BASELINE}\" ]]; then\n  git fetch ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}\
+        \ ${GITHUB_BASE_REF}:pull-base-ref\n  BASELINE_REF='pull-base-ref'\nelse\n  BASELINE_REF=\"${API_BREAKAGE_CHECK_BASELINE}\"\
+        \nfi\necho \"Using baseline: $BASELINE_REF\"\nif [[ -z \"${API_BREAKAGE_CHECK_ALLOWLIST_PATH}\" ]]; then\n  swift\
+        \ package diagnose-api-breaking-changes \"$BASELINE_REF\"\nelse\n  swift package diagnose-api-breaking-changes \"\
+        $BASELINE_REF\" --breakage-allowlist-path \"${API_BREAKAGE_CHECK_ALLOWLIST_PATH}\"\nfi\n"
+  docs-check:
+    name: Documentation check
+    if: ${{ inputs.docs_check_enabled }}
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.docs_check_container_image }}
+    timeout-minutes: 20
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+        submodules: true
+        ref: ${{ github.event.inputs.patch_sha }}
+        fetch-depth: 0
+    - name: Verify exact patch and baseline
+      shell: bash
+      env:
+        PATCH_SHA: ${{ github.event.inputs.patch_sha }}
+        BASE_SHA: ${{ github.event.inputs.base_sha }}
+      run: 'set -euo pipefail
+
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+        test "$(git rev-parse HEAD)" = "$PATCH_SHA"
+
+        git merge-base --is-ancestor "$BASE_SHA" HEAD
+
+        git log -1 --format=fuller
+
+        printf ''Baseline: %s\n'' "$BASE_SHA"'
+    - name: Checkout swiftlang/github-workflows repository
+      if: ${{ github.repository != 'swiftlang/github-workflows' }}
+      uses: actions/checkout@v7
+      with:
+        repository: swiftlang/github-workflows
+        path: github-workflows
+    - name: Determine script-root path
+      id: script_path
+      run: "if [ \"${{ github.repository }}\" = \"swiftlang/github-workflows\" ]; then\n  echo \"root=$GITHUB_WORKSPACE\"\
+        \ >> $GITHUB_OUTPUT\nelse\n  echo \"root=$GITHUB_WORKSPACE/github-workflows\" >> $GITHUB_OUTPUT\nfi\n"
+    - name: Run documentation check
+      env:
+        ADDITIONAL_DOCC_ARGUMENTS: ${{ inputs.docs_check_additional_arguments }}
+        DOCC_ANALYZE: ${{ inputs.docs_check_analyze }}
+        DOCS_TARGETS: ${{ inputs.docs_check_targets}}
+        SCRIPT_ROOT: ${{ steps.script_path.outputs.root }}
+      run: "set -x\n${{ inputs.linux_pre_build_command }}\nanalyze_arg=\"\"\ndoc_target_arg=\"\"\nif [ \"${DOCS_TARGETS}\"\
+        \ != \"\" ] ; then\n  doc_target_arg=\"--doc-targets ${DOCS_TARGETS}\"\nfi\nif [ \"${DOCC_ANALYZE}\" != \"true\" ];\
+        \ then\n  analyze_arg=\"--no-analyze\"\nfi\n\"${SCRIPT_ROOT}/.github/workflows/scripts/check-docs.sh\" ${analyze_arg}\
+        \ ${doc_target_arg} --additional-docc-arguments ${ADDITIONAL_DOCC_ARGUMENTS}\n"
+  docs-check-macos:
+    name: Documentation check (macOS)
+    if: ${{ inputs.docs_check_macos_enabled }}
+    runs-on:
+    - self-hosted
+    - macos
+    - ${{ inputs.docs_check_macos_version }}
+    - ${{ inputs.docs_check_macos_arch }}
+    timeout-minutes: 20
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+        submodules: true
+        ref: ${{ github.event.inputs.patch_sha }}
+        fetch-depth: 0
+    - name: Verify exact patch and baseline
+      shell: bash
+      env:
+        PATCH_SHA: ${{ github.event.inputs.patch_sha }}
+        BASE_SHA: ${{ github.event.inputs.base_sha }}
+      run: 'set -euo pipefail
+
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+        test "$(git rev-parse HEAD)" = "$PATCH_SHA"
+
+        git merge-base --is-ancestor "$BASE_SHA" HEAD
+
+        git log -1 --format=fuller
+
+        printf ''Baseline: %s\n'' "$BASE_SHA"'
+    - name: Checkout swiftlang/github-workflows repository
+      if: ${{ github.repository != 'swiftlang/github-workflows' }}
+      uses: actions/checkout@v7
+      with:
+        repository: swiftlang/github-workflows
+        path: github-workflows
+    - name: Determine script-root path
+      id: script_path
+      run: "if [ \"${{ github.repository }}\" = \"swiftlang/github-workflows\" ]; then\n  echo \"root=$GITHUB_WORKSPACE\"\
+        \ >> $GITHUB_OUTPUT\nelse\n  echo \"root=$GITHUB_WORKSPACE/github-workflows\" >> $GITHUB_OUTPUT\nfi\n"
+    - name: Select Xcode
+      env:
+        XCODE_VERSION: ${{ inputs.docs_check_macos_xcode_version }}
+      run: echo "DEVELOPER_DIR=/Applications/Xcode_${XCODE_VERSION}.app" >> $GITHUB_ENV
+    - name: Swift version
+      run: xcrun swift --version
+    - name: Clang version
+      run: xcrun clang --version
+    - name: Run documentation check
+      env:
+        ADDITIONAL_DOCC_ARGUMENTS: ${{ inputs.docs_check_macos_additional_arguments }}
+        DOCC_ANALYZE: ${{ inputs.docs_check_macos_analyze }}
+        DOCS_TARGETS: ${{ inputs.docs_check_macos_targets}}
+        SCRIPT_ROOT: ${{ steps.script_path.outputs.root }}
+      run: "analyze_arg=\"\"\ndoc_target_arg=\"\"\nif [ \"${DOCS_TARGETS}\" != \"\" ] ; then\n  doc_target_arg=\"--doc-targets\
+        \ ${DOCS_TARGETS}\"\nfi\nif [ \"${DOCC_ANALYZE}\" != \"true\" ]; then\n  analyze_arg=\"--no-analyze\"\nfi\nset -x\n\
+        \"${SCRIPT_ROOT}/.github/workflows/scripts/check-docs.sh\" ${analyze_arg} ${doc_target_arg} --additional-docc-arguments\
+        \ ${ADDITIONAL_DOCC_ARGUMENTS}\n"
+  unacceptable-language-check:
+    name: Unacceptable language check
+    if: ${{ inputs.unacceptable_language_check_enabled }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+        submodules: true
+        ref: ${{ github.event.inputs.patch_sha }}
+        fetch-depth: 0
+    - name: Verify exact patch and baseline
+      shell: bash
+      env:
+        PATCH_SHA: ${{ github.event.inputs.patch_sha }}
+        BASE_SHA: ${{ github.event.inputs.base_sha }}
+      run: 'set -euo pipefail
+
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+        test "$(git rev-parse HEAD)" = "$PATCH_SHA"
+
+        git merge-base --is-ancestor "$BASE_SHA" HEAD
+
+        git log -1 --format=fuller
+
+        printf ''Baseline: %s\n'' "$BASE_SHA"'
+    - name: Checkout swiftlang/github-workflows repository
+      if: ${{ github.repository != 'swiftlang/github-workflows' }}
+      uses: actions/checkout@v7
+      with:
+        repository: swiftlang/github-workflows
+        path: github-workflows
+    - name: Determine script-root path
+      id: script_path
+      run: "if [ \"${{ github.repository }}\" = \"swiftlang/github-workflows\" ]; then\n  echo \"root=$GITHUB_WORKSPACE\"\
+        \ >> $GITHUB_OUTPUT\nelse\n  echo \"root=$GITHUB_WORKSPACE/github-workflows\" >> $GITHUB_OUTPUT\nfi\n"
+    - name: Run unacceptable language check
+      env:
+        UNACCEPTABLE_WORD_LIST: ${{ inputs.unacceptable_language_check_word_list}}
+        SCRIPT_ROOT: ${{ steps.script_path.outputs.root }}
+      run: ${SCRIPT_ROOT}/.github/workflows/scripts/check-unacceptable-language.sh
+  license-header-check:
+    name: License headers check
+    if: ${{ inputs.license_header_check_enabled }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+        submodules: true
+        ref: ${{ github.event.inputs.patch_sha }}
+        fetch-depth: 0
+    - name: Verify exact patch and baseline
+      shell: bash
+      env:
+        PATCH_SHA: ${{ github.event.inputs.patch_sha }}
+        BASE_SHA: ${{ github.event.inputs.base_sha }}
+      run: 'set -euo pipefail
+
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+        test "$(git rev-parse HEAD)" = "$PATCH_SHA"
+
+        git merge-base --is-ancestor "$BASE_SHA" HEAD
+
+        git log -1 --format=fuller
+
+        printf ''Baseline: %s\n'' "$BASE_SHA"'
+    - name: Checkout swiftlang/github-workflows repository
+      if: ${{ github.repository != 'swiftlang/github-workflows' }}
+      uses: actions/checkout@v7
+      with:
+        repository: swiftlang/github-workflows
+        path: github-workflows
+    - name: Determine script-root path
+      id: script_path
+      run: "if [ \"${{ github.repository }}\" = \"swiftlang/github-workflows\" ]; then\n  echo \"root=$GITHUB_WORKSPACE\"\
+        \ >> $GITHUB_OUTPUT\nelse\n  echo \"root=$GITHUB_WORKSPACE/github-workflows\" >> $GITHUB_OUTPUT\nfi\n"
+    - name: Run license header check
+      env:
+        PROJECT_NAME: ${{ inputs.license_header_check_project_name }}
+        SCRIPT_ROOT: ${{ steps.script_path.outputs.root }}
+      run: ${SCRIPT_ROOT}/.github/workflows/scripts/check-license-header.sh
+  broken-symlink-check:
+    name: Broken symlinks check
+    if: ${{ inputs.broken_symlink_check_enabled }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+        submodules: true
+        ref: ${{ github.event.inputs.patch_sha }}
+        fetch-depth: 0
+    - name: Verify exact patch and baseline
+      shell: bash
+      env:
+        PATCH_SHA: ${{ github.event.inputs.patch_sha }}
+        BASE_SHA: ${{ github.event.inputs.base_sha }}
+      run: 'set -euo pipefail
+
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+        test "$(git rev-parse HEAD)" = "$PATCH_SHA"
+
+        git merge-base --is-ancestor "$BASE_SHA" HEAD
+
+        git log -1 --format=fuller
+
+        printf ''Baseline: %s\n'' "$BASE_SHA"'
+    - name: Checkout swiftlang/github-workflows repository
+      if: ${{ github.repository != 'swiftlang/github-workflows' }}
+      uses: actions/checkout@v7
+      with:
+        repository: swiftlang/github-workflows
+        path: github-workflows
+    - name: Determine script-root path
+      id: script_path
+      run: "if [ \"${{ github.repository }}\" = \"swiftlang/github-workflows\" ]; then\n  echo \"root=$GITHUB_WORKSPACE\"\
+        \ >> $GITHUB_OUTPUT\nelse\n  echo \"root=$GITHUB_WORKSPACE/github-workflows\" >> $GITHUB_OUTPUT\nfi\n"
+    - name: Run broken symlinks check
+      env:
+        SCRIPT_ROOT: ${{ steps.script_path.outputs.root }}
+      run: ${SCRIPT_ROOT}/.github/workflows/scripts/check-broken-symlinks.sh
+  format-check:
+    name: Format check
+    if: ${{ inputs.format_check_enabled }}
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.format_check_container_image }}
+    timeout-minutes: 20
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+        submodules: true
+        ref: ${{ github.event.inputs.patch_sha }}
+        fetch-depth: 0
+    - name: Verify exact patch and baseline
+      shell: bash
+      env:
+        PATCH_SHA: ${{ github.event.inputs.patch_sha }}
+        BASE_SHA: ${{ github.event.inputs.base_sha }}
+      run: 'set -euo pipefail
+
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+        test "$(git rev-parse HEAD)" = "$PATCH_SHA"
+
+        git merge-base --is-ancestor "$BASE_SHA" HEAD
+
+        git log -1 --format=fuller
+
+        printf ''Baseline: %s\n'' "$BASE_SHA"'
+    - name: Checkout swiftlang/github-workflows repository
+      if: ${{ github.repository != 'swiftlang/github-workflows' }}
+      uses: actions/checkout@v7
+      with:
+        repository: swiftlang/github-workflows
+        path: github-workflows
+    - name: Determine script-root path
+      id: script_path
+      run: "if [ \"${{ github.repository }}\" = \"swiftlang/github-workflows\" ]; then\n  echo \"root=$GITHUB_WORKSPACE\"\
+        \ >> $GITHUB_OUTPUT\nelse\n  echo \"root=$GITHUB_WORKSPACE/github-workflows\" >> $GITHUB_OUTPUT\nfi\n"
+    - name: Mark the workspace as safe
+      run: git config --global --add safe.directory ${GITHUB_WORKSPACE}
+    - name: Run format check
+      env:
+        SCRIPT_ROOT: ${{ steps.script_path.outputs.root }}
+      run: ${SCRIPT_ROOT}/.github/workflows/scripts/check-swift-format.sh
+  shell-check:
+    name: Shell check
+    if: ${{ inputs.shell_check_enabled }}
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.shell_check_container_image }}
+    timeout-minutes: 5
+    steps:
+    - name: Install git
+      run: which git || (apt -q update && apt -yq install git)
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+        submodules: true
+        ref: ${{ github.event.inputs.patch_sha }}
+        fetch-depth: 0
+    - name: Verify exact patch and baseline
+      shell: bash
+      env:
+        PATCH_SHA: ${{ github.event.inputs.patch_sha }}
+        BASE_SHA: ${{ github.event.inputs.base_sha }}
+      run: 'set -euo pipefail
+
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+        test "$(git rev-parse HEAD)" = "$PATCH_SHA"
+
+        git merge-base --is-ancestor "$BASE_SHA" HEAD
+
+        git log -1 --format=fuller
+
+        printf ''Baseline: %s\n'' "$BASE_SHA"'
+    - name: Mark the workspace as safe
+      run: git config --global --add safe.directory ${GITHUB_WORKSPACE}
+    - name: Run shellcheck
+      run: 'which shellcheck || (apt -q update && apt -yq install shellcheck)
+
+        git ls-files -z ''*.sh'' | xargs -0 --no-run-if-empty shellcheck
+
+        '
+  yaml-lint-check:
+    name: YAML lint check
+    if: ${{ inputs.yamllint_check_enabled }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+        submodules: true
+        ref: ${{ github.event.inputs.patch_sha }}
+        fetch-depth: 0
+    - name: Verify exact patch and baseline
+      shell: bash
+      env:
+        PATCH_SHA: ${{ github.event.inputs.patch_sha }}
+        BASE_SHA: ${{ github.event.inputs.base_sha }}
+      run: 'set -euo pipefail
+
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+        test "$(git rev-parse HEAD)" = "$PATCH_SHA"
+
+        git merge-base --is-ancestor "$BASE_SHA" HEAD
+
+        git log -1 --format=fuller
+
+        printf ''Baseline: %s\n'' "$BASE_SHA"'
+    - name: Checkout swiftlang/github-workflows repository
+      if: ${{ github.repository != 'swiftlang/github-workflows' }}
+      uses: actions/checkout@v7
+      with:
+        repository: swiftlang/github-workflows
+        path: github-workflows
+    - name: Determine script-root path
+      id: script_path
+      run: "if [ \"${{ github.repository }}\" = \"swiftlang/github-workflows\" ]; then\n  echo \"root=$GITHUB_WORKSPACE\"\
+        \ >> $GITHUB_OUTPUT\nelse\n  echo \"root=$GITHUB_WORKSPACE/github-workflows\" >> $GITHUB_OUTPUT\nfi\n"
+    - name: Run yamllint
+      env:
+        SCRIPT_ROOT: ${{ steps.script_path.outputs.root }}
+      run: "which yamllint || (apt -q update && apt install -yq yamllint)\ncd ${GITHUB_WORKSPACE}\nif [ ! -f \".yamllint.yml\"\
+        \ ]; then\n  echo \"Downloading default yamllint config file\"\n  cat \"${SCRIPT_ROOT}/.github/workflows/configs/yamllint.yml\"\
+        \ > .yamllint.yml\nfi\nyamllint --strict --config-file .yamllint.yml .\n"
+  python-lint-check:
+    name: Python lint check
+    if: ${{ inputs.python_lint_check_enabled }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+        submodules: true
+        ref: ${{ github.event.inputs.patch_sha }}
+        fetch-depth: 0
+    - name: Verify exact patch and baseline
+      shell: bash
+      env:
+        PATCH_SHA: ${{ github.event.inputs.patch_sha }}
+        BASE_SHA: ${{ github.event.inputs.base_sha }}
+      run: 'set -euo pipefail
+
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+        test "$(git rev-parse HEAD)" = "$PATCH_SHA"
+
+        git merge-base --is-ancestor "$BASE_SHA" HEAD
+
+        git log -1 --format=fuller
+
+        printf ''Baseline: %s\n'' "$BASE_SHA"'
+    - name: Checkout swiftlang/github-workflows repository
+      if: ${{ github.repository != 'swiftlang/github-workflows' }}
+      uses: actions/checkout@v7
+      with:
+        repository: swiftlang/github-workflows
+        path: github-workflows
+    - name: Determine script-root path
+      id: script_path
+      run: "if [ \"${{ github.repository }}\" = \"swiftlang/github-workflows\" ]; then\n  echo \"root=$GITHUB_WORKSPACE\"\
+        \ >> $GITHUB_OUTPUT\nelse\n  echo \"root=$GITHUB_WORKSPACE/github-workflows\" >> $GITHUB_OUTPUT\nfi\n"
+    - name: Run flake8
+      env:
+        SCRIPT_ROOT: ${{ steps.script_path.outputs.root }}
+      run: "pip3 install flake8 flake8-import-order\ncd ${GITHUB_WORKSPACE}\nif [ ! -f \".flake8\" ]; then\n  echo \"Downloading\
+        \ default flake8 config file\"\n  cat \"${SCRIPT_ROOT}/.github/workflows/configs/.flake8\" > .flake8\nfi\nflake8\n"
+'on':
+  workflow_call:
+    inputs:
+      api_breakage_check_enabled:
+        type: boolean
+        description: Boolean to enable the API breakage check job. Defaults to true.
+        default: true
+      api_breakage_check_allowlist_path:
+        type: string
+        description: Path to a file that will be passed as --breakage-allowlist-path to swift package diagnose-api-breaking-changes
+        default: ''
+      api_breakage_check_baseline:
+        type: string
+        description: The tag against which API breakages that should be used as the baseline for the API breakage check. By
+          default the PR base is used.
+        default: ''
+      api_breakage_check_container_image:
+        type: string
+        description: Container image for the API breakage check job. Defaults to latest Swift Ubuntu image.
+        default: swift:6.3-noble
+      docs_check_enabled:
+        type: boolean
+        description: Boolean to enable the docs check job. Defaults to true.
+        default: true
+      docs_check_container_image:
+        type: string
+        description: Container image for the docs check job. Defaults to latest Swift Ubuntu image.
+        default: swift:6.3-noble
+      docs_check_additional_arguments:
+        type: string
+        description: Additional arguments that should be passed to docc
+        default: ''
+      docs_check_targets:
+        type: string
+        description: List of targets to check for documentation.
+        default: ''
+      docs_check_analyze:
+        type: boolean
+        description: Boolean to pass --analyze to the docs check. Defaults to true.
+        default: true
+      docs_check_macos_enabled:
+        type: boolean
+        description: Boolean to enable the macOS docs check job. Defaults to false.
+        default: false
+      docs_check_macos_version:
+        type: string
+        description: macOS version for the macOS docs check job.
+        default: tahoe
+      docs_check_macos_arch:
+        type: string
+        description: macOS arch for the macOS docs check job.
+        default: ARM64
+      docs_check_macos_xcode_version:
+        type: string
+        description: Xcode version for the macOS docs check job.
+        default: '26.0'
+      docs_check_macos_additional_arguments:
+        type: string
+        description: Additional arguments that should be passed to docc for the macOS docs check job.
+        default: ''
+      docs_check_macos_targets:
+        type: string
+        description: List of targets to check for documentation.
+        default: ''
+      docs_check_macos_analyze:
+        type: boolean
+        description: Boolean to pass --analyze to the macOS docs check. Defaults to true.
+        default: true
+      unacceptable_language_check_enabled:
+        type: boolean
+        description: Boolean to enable the acceptable language check job. Defaults to true.
+        default: true
+      unacceptable_language_check_word_list:
+        type: string
+        description: List of unacceptable words. Defaults to a sensible list of words.
+        default: blacklist whitelist slave master sane sanity insane insanity kill killed killing hang hung hanged hanging
+      license_header_check_enabled:
+        type: boolean
+        description: Boolean to enable the license header check job. Defaults to true.
+        default: true
+      license_header_check_project_name:
+        type: string
+        description: Name of the project called out in the license header. Required unless `license_header_check_enabled`
+          is false or a `.license_header_template` file is present.
+        default: ''
+      broken_symlink_check_enabled:
+        type: boolean
+        description: Boolean to enable the broken symlink check job. Defaults to true.
+        default: true
+      format_check_enabled:
+        type: boolean
+        description: Boolean to enable the format check job. Defaults to true.
+        default: true
+      format_check_container_image:
+        type: string
+        description: Container image for the format check job. Defaults to latest Swift Ubuntu image.
+        default: swift:6.3-noble
+      shell_check_enabled:
+        type: boolean
+        description: Boolean to enable the shell check job. Defaults to true.
+        default: true
+      shell_check_container_image:
+        type: string
+        description: Container image for the shell check job. Defaults to latest Ubuntu 24.04 Noble image.
+        default: ubuntu:noble
+      yamllint_check_enabled:
+        type: boolean
+        description: Boolean to enable the YAML lint check job. Defaults to true.
+        default: true
+      python_lint_check_enabled:
+        type: boolean
+        description: Boolean to enable the Python lint check job. Defaults to true.
+        default: true
+      linux_pre_build_command:
+        type: string
+        description: Linux command to execute before building the Swift package
+        default: ''
+      concurrency_group_suffix:
+        type: string
+        description: Optional suffix appended to the concurrency group. Use this when calling soundness.yml from a matrix
+          so that matrix entries don't cancel each other.
+        default: ''
