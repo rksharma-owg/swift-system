@@ -1257,6 +1257,3 @@ jobs:
         description: 'Whether PRs can be tested in combination with other PRs by mentioning them as `Linked PR: <link to PR>`
           in the PR description'
         default: false
-concurrency:
-  group: ${{ github.workflow }}-${{ github.run_id }}-fork-package.yml
-  cancel-in-progress: false
