@@ -107,6 +107,49 @@ jobs:
       format_check_enabled: false
       python_lint_check_enabled: false
       api_breakage_check_baseline: ${{ inputs.base_sha }}
+  ioring-execution:
+    name: Immutable buffer kernel write/read-back
+    runs-on: ubuntu-latest
+    steps:
+    - name: Copy Sources
+      uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.inputs.patch_sha }}
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Verify exact patch and baseline
+      shell: bash
+      env:
+        PATCH_SHA: ${{ github.event.inputs.patch_sha }}
+        BASE_SHA: ${{ github.event.inputs.base_sha }}
+      run: 'set -euo pipefail
+
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+        test "$(git rev-parse HEAD)" = "$PATCH_SHA"
+
+        git merge-base --is-ancestor "$BASE_SHA" HEAD
+
+        git log -1 --format=fuller
+
+        printf ''Baseline: %s\n'' "$BASE_SHA"'
+    - name: Run actual io_uring regression without container syscall filtering
+      shell: bash
+      run: 'set -euo pipefail
+
+        docker run --rm --security-opt seccomp=unconfined -v "$GITHUB_WORKSPACE:/src" -w /src swift:6.4-noble bash -c ''swift
+        test -Xbuild-tools-swiftc -DSYSTEM_CI --filter IORingTests.testWriteImmutableUnregisteredBuffer'' | tee /tmp/io-regression.log
+
+        python3 - <<''VERIFY''
+
+        from pathlib import Path
+
+        s=Path(''/tmp/io-regression.log'').read_text()
+
+        assert "Test Case ''IORingTests.testWriteImmutableUnregisteredBuffer'' passed" in s, ''Regression did not execute
+        successfully (including possible kernel skip)''
+
+        VERIFY'
 'on':
   workflow_dispatch:
     inputs:
