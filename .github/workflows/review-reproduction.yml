@@ -1,0 +1,15 @@
+name: Inferred buffer overload reproduction
+on:
+  push:
+    branches: [codex/system402-reproduction-20261016]
+permissions:
+  contents: read
+jobs:
+  reproduce:
+    runs-on: ubuntu-latest
+    container: swift:6.4-noble
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: swift test -Xbuild-tools-swiftc -DSYSTEM_CI --filter IORequestTests
